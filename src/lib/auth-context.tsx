@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sync profile from Firestore or local storage
   const fetchUserProfile = async (firebaseUser: User) => {
-    const isSuperAdmin = ADMIN_EMAILS.includes((firebaseUser.email || "").toLowerCase());
+    const isSuperAdmin = ADMIN_EMAILS.includes((firebaseUser.email || "").toLowerCase().trim());
     const todayStr = new Date().toISOString().split("T")[0];
     
     // Helper to register user in the admin users list cache
@@ -79,21 +79,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isFirebaseConfigured) {
       try {
         const userRef = doc(db, "users", firebaseUser.uid);
-        const snapshot = await getDoc(userRef);
+        // Timeout after 3 seconds so slow or unconfigured Firestore never blocks the user
+        const snapshot = await Promise.race([
+          getDoc(userRef),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Firestore timeout")), 3000))
+        ]);
 
         if (snapshot.exists()) {
           const data = snapshot.data() as UserProfile;
           let needsUpdate = false;
           const updates: Partial<UserProfile> = {};
 
-          // Ensure super admin email always has admin role
           if (isSuperAdmin && data.role !== "admin") {
             updates.role = "admin";
             data.role = "admin";
             needsUpdate = true;
           }
 
-          // Check if declaration date is today, reset daily count if new day
           if (data.lastDeclarationDate !== todayStr) {
             updates.dailyDeclarationsCount = 0;
             updates.lastDeclarationDate = todayStr;
@@ -103,14 +105,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
 
           if (needsUpdate) {
-            await updateDoc(userRef, updates);
+            updateDoc(userRef, updates).catch(() => {});
           }
 
           setProfile(data);
+          localStorage.setItem(`yw_profile_${firebaseUser.uid}`, JSON.stringify(data));
           syncUserToAdminList(data);
           return;
         } else {
-          // Create new user profile
           const newProfile: UserProfile = {
             uid: firebaseUser.uid,
             email: firebaseUser.email || "",
@@ -125,13 +127,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             totalDeclarationsCount: 0,
             maxDailyDeclarations: 10,
           };
-          await setDoc(userRef, newProfile);
+          setDoc(userRef, newProfile, { merge: true }).catch(() => {});
           setProfile(newProfile);
+          localStorage.setItem(`yw_profile_${firebaseUser.uid}`, JSON.stringify(newProfile));
           syncUserToAdminList(newProfile);
           return;
         }
       } catch (err) {
-        console.warn("Firestore access error, falling back to client session:", err);
+        console.warn("Firestore access error/timeout, using local profile:", err);
       }
     }
 
@@ -196,11 +199,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        await fetchUserProfile(currentUser);
+        // Instantly generate and set initial profile synchronously so user is never without profile or admin status
+        const isSuperAdmin = ADMIN_EMAILS.includes((currentUser.email || "").toLowerCase().trim());
+        const todayStr = new Date().toISOString().split("T")[0];
+        
+        let localProfile: UserProfile | null = null;
+        try {
+          const savedLocal = localStorage.getItem(`yw_profile_${currentUser.uid}`);
+          if (savedLocal) {
+            localProfile = JSON.parse(savedLocal) as UserProfile;
+            if (isSuperAdmin) localProfile.role = "admin";
+          }
+        } catch (e) {}
+
+        const initialProfile: UserProfile = localProfile || {
+          uid: currentUser.uid,
+          email: currentUser.email || "",
+          displayName: currentUser.displayName || "Usuário",
+          photoURL: currentUser.photoURL || undefined,
+          role: isSuperAdmin ? "admin" : "free",
+          createdAt: Date.now(),
+          lastLinkAccessAt: null,
+          dailyAccessCount: 0,
+          dailyDeclarationsCount: 0,
+          lastDeclarationDate: todayStr,
+          totalDeclarationsCount: 0,
+          maxDailyDeclarations: 10,
+        };
+
+        setProfile(initialProfile);
+        setLoading(false);
+
+        // Fetch update from Firestore in background
+        fetchUserProfile(currentUser).catch(console.error);
       } else {
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -292,20 +327,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const isAdmin = profile?.role === "admin";
-  const isVip = profile?.role === "vip" || isAdmin;
-  const isFree = profile?.role === "free";
+  const isSuperAdminEmail = Boolean(user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase().trim()));
+  const isAdmin = Boolean(isSuperAdminEmail || profile?.role === "admin");
+  const isVip = Boolean(isAdmin || profile?.role === "vip");
+  const isFree = !isVip;
 
   // Check 24h quota for links
   let dailyAccessUsed = false;
   let nextAvailableTime: Date | null = null;
   let hoursRemaining = 0;
 
-  if (isFree && profile?.lastLinkAccessAt) {
-    const timeElapsed = Date.now() - profile.lastLinkAccessAt;
+  const localLastAccess = typeof window !== "undefined" && user?.uid
+    ? Number(localStorage.getItem(`yw_last_access_${user.uid}`)) || null
+    : null;
+  const effectiveLastAccess = profile?.lastLinkAccessAt || localLastAccess;
+
+  if (isFree && effectiveLastAccess) {
+    const timeElapsed = Date.now() - effectiveLastAccess;
     if (timeElapsed < TWENTY_FOUR_HOURS_MS) {
       dailyAccessUsed = true;
-      nextAvailableTime = new Date(profile.lastLinkAccessAt + TWENTY_FOUR_HOURS_MS);
+      nextAvailableTime = new Date(effectiveLastAccess + TWENTY_FOUR_HOURS_MS);
       hoursRemaining = Math.max(1, Math.ceil((TWENTY_FOUR_HOURS_MS - timeElapsed) / (1000 * 60 * 60)));
     }
   }
@@ -374,11 +415,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Record when a free user accesses a supplier link (consumes 1 free link for 24h)
   const recordLinkAccess = async (productId: string): Promise<boolean> => {
-    if (!profile || !user) return false;
+    if (!user) return false;
     const now = Date.now();
-    const newCount = (profile.dailyAccessCount || 0) + 1;
+
+    // Persist immediately in direct dedicated localStorage keys
+    try {
+      localStorage.setItem(`yw_last_access_${user.uid}`, String(now));
+      localStorage.setItem(`yw_last_product_${user.uid}`, productId);
+    } catch (e) {}
+
+    const currentProfile: UserProfile = profile || {
+      uid: user.uid,
+      email: user.email || "",
+      displayName: user.displayName || "Usuário",
+      photoURL: user.photoURL || undefined,
+      role: "free",
+      createdAt: Date.now(),
+      lastLinkAccessAt: null,
+      dailyAccessCount: 0,
+      dailyDeclarationsCount: 0,
+      lastDeclarationDate: new Date().toISOString().split("T")[0],
+      totalDeclarationsCount: 0,
+      maxDailyDeclarations: 10,
+    };
+
+    const newCount = (currentProfile.dailyAccessCount || 0) + 1;
     const updatedProfile: UserProfile = {
-      ...profile,
+      ...currentProfile,
       lastLinkAccessAt: now,
       lastAccessedProductId: productId,
       dailyAccessCount: newCount,
@@ -386,22 +449,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setProfile(updatedProfile);
 
+    // Save local profile
+    try {
+      localStorage.setItem(`yw_profile_${user.uid}`, JSON.stringify(updatedProfile));
+    } catch (e) {}
+
     // Save to Firestore if configured
     if (isFirebaseConfigured) {
       try {
-        const userRef = doc(db, "users", profile.uid);
-        await updateDoc(userRef, {
+        const userRef = doc(db, "users", user.uid);
+        setDoc(userRef, {
           lastLinkAccessAt: now,
           lastAccessedProductId: productId,
           dailyAccessCount: newCount,
-        });
+        }, { merge: true }).catch(() => {});
       } catch (err) {
-        console.error("Failed to update link access in Firestore:", err);
+        console.warn("Failed to update link access in Firestore:", err);
       }
     }
-
-    // Save local profile
-    localStorage.setItem(`yw_profile_${profile.uid}`, JSON.stringify(updatedProfile));
 
     // Update mock session if present
     const savedMock = localStorage.getItem("yw_mock_user");
@@ -418,7 +483,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const saved = localStorage.getItem("yw_users_list");
       if (saved) {
         const list: UserProfile[] = JSON.parse(saved);
-        const updatedList = list.map((u) => (u.uid === profile.uid ? { ...u, ...updatedProfile } : u));
+        const updatedList = list.map((u) => (u.uid === user.uid ? { ...u, ...updatedProfile } : u));
         localStorage.setItem("yw_users_list", JSON.stringify(updatedList));
       }
     } catch (e) {
@@ -442,6 +507,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       setProfile(updatedProfile);
       localStorage.setItem(`yw_profile_${uidToReset}`, JSON.stringify(updatedProfile));
+      localStorage.removeItem(`yw_last_access_${uidToReset}`);
+      localStorage.removeItem(`yw_last_product_${uidToReset}`);
 
       const savedMock = localStorage.getItem("yw_mock_user");
       if (savedMock) {

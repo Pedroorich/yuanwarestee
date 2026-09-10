@@ -12,6 +12,14 @@ import {
 import { Product, Banner, PopupConfig, UserProfile, UserRole } from "@/types";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import { 
+  saveBannersToFirestore, 
+  saveProductsToFirestore, 
+  savePopupToFirestore, 
+  getUsersFromFirestore, 
+  getBannersFromFirestore, 
+  getProductsFromFirestore 
+} from "@/lib/firestore-sync";
 import RedditBulkImporter from "@/components/RedditBulkImporter";
 import ImageUploader from "@/components/ImageUploader";
 import { 
@@ -95,36 +103,57 @@ export default function AdminPage() {
       }
     }
 
-    // Load registered users from Firestore or localStorage
-    const loadUsers = async () => {
-      if (isFirebaseConfigured) {
-        try {
-          const usersCol = collection(db, "users");
-          const snap = await getDocs(usersCol);
-          if (!snap.empty) {
-            const firestoreUsers: UserProfile[] = [];
-            snap.forEach((docSnap) => {
-              firestoreUsers.push(docSnap.data() as UserProfile);
-            });
-            setUsersList(firestoreUsers);
-            localStorage.setItem("yw_users_list", JSON.stringify(firestoreUsers));
-            return;
-          }
-        } catch (err) {
-          console.warn("Could not fetch users directly from Firestore, using local list:", err);
+    // Load cloud data and registered users from Firestore
+    const loadCloudData = async () => {
+      // 1. Sync users from Firestore
+      try {
+        const cloudUsers = await getUsersFromFirestore();
+        if (cloudUsers && cloudUsers.length > 0) {
+          // Merge with any local users
+          const savedUsers = localStorage.getItem("yw_users_list");
+          const localList: UserProfile[] = savedUsers ? JSON.parse(savedUsers) : [];
+          
+          const mergedMap = new Map<string, UserProfile>();
+          localList.forEach(u => mergedMap.set(u.uid, u));
+          cloudUsers.forEach(u => mergedMap.set(u.uid, { ...mergedMap.get(u.uid), ...u }));
+          
+          const merged = Array.from(mergedMap.values());
+          setUsersList(merged);
+          localStorage.setItem("yw_users_list", JSON.stringify(merged));
         }
+      } catch (err) {
+        console.warn("Could not fetch users directly from Firestore:", err);
       }
 
-      const savedUsers = localStorage.getItem("yw_users_list");
-      if (savedUsers) {
-        try {
-          setUsersList(JSON.parse(savedUsers));
-          return;
-        } catch (e) {
-          console.error(e);
+      // 2. Sync banners from Firestore
+      try {
+        const cloudBanners = await getBannersFromFirestore();
+        if (cloudBanners && cloudBanners.length > 0) {
+          setBanners(cloudBanners);
+          localStorage.setItem("yw_banners", JSON.stringify(cloudBanners));
         }
-      }
+      } catch (e) {}
 
+      // 3. Sync products from Firestore
+      try {
+        const cloudProducts = await getProductsFromFirestore();
+        if (cloudProducts && cloudProducts.length > 0) {
+          setProducts(cloudProducts);
+          localStorage.setItem("yw_products", JSON.stringify(cloudProducts));
+        }
+      } catch (e) {}
+    };
+
+    loadCloudData();
+
+    const savedUsers = localStorage.getItem("yw_users_list");
+    if (savedUsers) {
+      try {
+        setUsersList(JSON.parse(savedUsers));
+      } catch (e) {
+        console.error(e);
+      }
+    } else {
       const defaultUsers: UserProfile[] = [
         {
           uid: "lead-001",
@@ -165,9 +194,7 @@ export default function AdminPage() {
       ];
       setUsersList(defaultUsers);
       localStorage.setItem("yw_users_list", JSON.stringify(defaultUsers));
-    };
-
-    loadUsers();
+    }
   }, []);
 
   const showToast = (msg: string) => {
@@ -227,6 +254,7 @@ export default function AdminPage() {
       );
       setProducts(updated);
       localStorage.setItem("yw_products", JSON.stringify(updated));
+      saveProductsToFirestore(updated).catch(console.error);
       showToast("Produto atualizado com sucesso!");
     } else {
       // Create
@@ -248,6 +276,7 @@ export default function AdminPage() {
       const updated = [newProd, ...products];
       setProducts(updated);
       localStorage.setItem("yw_products", JSON.stringify(updated));
+      saveProductsToFirestore(updated).catch(console.error);
       showToast("Novo produto adicionado à vitrine!");
     }
 
@@ -261,6 +290,7 @@ export default function AdminPage() {
     const updated = [...newProducts, ...products];
     setProducts(updated);
     localStorage.setItem("yw_products", JSON.stringify(updated));
+    saveProductsToFirestore(updated).catch(console.error);
     showToast(`✓ ${newProducts.length} produtos importados do Reddit com sucesso!`);
   };
 
@@ -269,6 +299,7 @@ export default function AdminPage() {
       const updated = products.filter((p) => p.id !== id);
       setProducts(updated);
       localStorage.setItem("yw_products", JSON.stringify(updated));
+      saveProductsToFirestore(updated).catch(console.error);
       showToast("Produto excluído.");
     }
   };
@@ -279,6 +310,7 @@ export default function AdminPage() {
     );
     setProducts(updated);
     localStorage.setItem("yw_products", JSON.stringify(updated));
+    saveProductsToFirestore(updated).catch(console.error);
     showToast("Status do produto alterado.");
   };
 
@@ -407,6 +439,7 @@ export default function AdminPage() {
     };
     setPopupConfig(updated);
     localStorage.setItem("yw_popup", JSON.stringify(updated));
+    savePopupToFirestore(updated).catch(console.error);
     showToast("Configuração de Pop-up salva com sucesso!");
   };
 
@@ -432,6 +465,7 @@ export default function AdminPage() {
     const updated = [...banners, newBanner];
     setBanners(updated);
     localStorage.setItem("yw_banners", JSON.stringify(updated));
+    saveBannersToFirestore(updated).catch(console.error);
     showToast("Novo banner adicionado com sucesso!");
     setIsBannerModalOpen(false);
     setUploadedBannerImage("");
@@ -442,6 +476,7 @@ export default function AdminPage() {
       const updated = banners.filter((b) => b.id !== id);
       setBanners(updated);
       localStorage.setItem("yw_banners", JSON.stringify(updated));
+      saveBannersToFirestore(updated).catch(console.error);
       showToast("Banner removido.");
     }
   };

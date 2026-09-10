@@ -17,6 +17,11 @@ import {
   CATEGORIES 
 } from "@/lib/mock-data";
 import { VIP_CHECKOUT_URL } from "@/lib/constants";
+import { 
+  getBannersFromFirestore, 
+  getProductsFromFirestore, 
+  getPopupFromFirestore 
+} from "@/lib/firestore-sync";
 import { PublicProduct, Product, DeclarationCartItem, Banner, PopupConfig } from "@/types";
 import { 
   Search, 
@@ -72,8 +77,9 @@ export default function Home() {
   const [declarationItems, setDeclarationItems] = useState<DeclarationCartItem[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Load custom admin-saved products & settings from localStorage or Firestore
+  // Load custom admin-saved products & settings from localStorage and Firestore
   useEffect(() => {
+    // 1. Initial instant load from localStorage
     const savedProducts = localStorage.getItem("yw_products");
     if (savedProducts) {
       try {
@@ -109,6 +115,36 @@ export default function Home() {
         console.error(e);
       }
     }
+
+    // 2. Load latest cloud data from Firestore (shared with all devices/cellphones)
+    const loadCloudData = async () => {
+      try {
+        const [cloudBanners, cloudProducts, cloudPopup] = await Promise.allSettled([
+          getBannersFromFirestore(),
+          getProductsFromFirestore(),
+          getPopupFromFirestore(),
+        ]);
+
+        if (cloudBanners.status === "fulfilled" && cloudBanners.value && cloudBanners.value.length > 0) {
+          setBanners(cloudBanners.value);
+          localStorage.setItem("yw_banners", JSON.stringify(cloudBanners.value));
+        }
+
+        if (cloudProducts.status === "fulfilled" && cloudProducts.value && cloudProducts.value.length > 0) {
+          setProducts(cloudProducts.value);
+          localStorage.setItem("yw_products", JSON.stringify(cloudProducts.value));
+        }
+
+        if (cloudPopup.status === "fulfilled" && cloudPopup.value) {
+          setPopupConfig(cloudPopup.value);
+          localStorage.setItem("yw_popup", JSON.stringify(cloudPopup.value));
+        }
+      } catch (err) {
+        console.warn("Could not sync cloud data from Firestore:", err);
+      }
+    };
+
+    loadCloudData();
   }, []);
 
   // Save cart changes
@@ -140,7 +176,11 @@ export default function Home() {
 
   // Check if a specific product was already unlocked today by this free user
   const isProductUnlockedToday = (productId: string) => {
-    return Boolean(isFree && dailyAccessUsed && profile?.lastAccessedProductId === productId);
+    const localProduct = typeof window !== "undefined" && user?.uid
+      ? localStorage.getItem(`yw_last_product_${user.uid}`)
+      : null;
+    const isMatching = profile?.lastAccessedProductId === productId || localProduct === productId;
+    return Boolean(isFree && dailyAccessUsed && isMatching);
   };
 
   // Handle Accessing the Chinese Supplier Link
@@ -153,9 +193,13 @@ export default function Home() {
       } catch (e) {
         return;
       }
+      return;
     }
 
-    const isSameProduct = profile?.lastAccessedProductId === product.id;
+    const localProduct = typeof window !== "undefined" && user?.uid
+      ? localStorage.getItem(`yw_last_product_${user.uid}`)
+      : null;
+    const isSameProduct = profile?.lastAccessedProductId === product.id || localProduct === product.id;
 
     // 2. If Free user and daily quota already spent on another product -> Show Locked Modal
     if (!isVip && dailyAccessUsed && !isSameProduct) {

@@ -31,8 +31,8 @@ export async function POST(
       );
     }
 
-    // Handle administrative/client quota reset
-    if (reset || lastLinkAccessAt === null) {
+    // Handle administrative quota reset
+    if (reset) {
       localAccessLog.delete(userId);
     }
 
@@ -62,13 +62,13 @@ export async function POST(
 
     // 3. For FREE users:
     const inMemoryEntry = localAccessLog.get(userId);
-    // If client explicitly says lastLinkAccessAt is null/empty, trust it (quota was reset or never used)
-    const effectiveLastAccessTime = 
-      lastLinkAccessAt !== undefined && lastLinkAccessAt !== null
-        ? lastLinkAccessAt
-        : (inMemoryEntry?.timestamp || 0);
+    const clientTimestamp = typeof lastLinkAccessAt === "number" && lastLinkAccessAt > 0 ? lastLinkAccessAt : 0;
+    const memoryTimestamp = inMemoryEntry?.timestamp || 0;
+    const effectiveLastAccessTime = Math.max(clientTimestamp, memoryTimestamp);
 
-    const effectiveLastProductId = lastAccessedProductId || inMemoryEntry?.productId;
+    const effectiveLastProductId = clientTimestamp >= memoryTimestamp 
+      ? (lastAccessedProductId || inMemoryEntry?.productId) 
+      : (inMemoryEntry?.productId || lastAccessedProductId);
 
     const now = Date.now();
     const elapsed = now - effectiveLastAccessTime;
