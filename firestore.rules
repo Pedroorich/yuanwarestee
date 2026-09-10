@@ -1,0 +1,57 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email.lower() == 'ph44608@gmail.com' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      // User can read their own data; Admins can read everyone
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // User can create their initial profile as 'free'
+      allow create: if isOwner(userId) && request.resource.data.role == 'free';
+      
+      // User can update lastLinkAccessAt; Role can ONLY be changed by Admin
+      allow update: if (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin();
+      
+      allow delete: if isAdmin();
+    }
+
+    // Products Collection
+    match /products/{productId} {
+      // Public catalog read
+      allow read: if true;
+      // Only Admin can create, edit or delete products
+      allow write: if isAdmin();
+    }
+
+    // Banners & Popups Settings
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Link Access Logs
+    match /link_clicks/{clickId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+  }
+}
