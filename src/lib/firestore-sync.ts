@@ -3,7 +3,9 @@
   getDoc, 
   setDoc, 
   collection, 
-  getDocs 
+  getDocs,
+  onSnapshot,
+  Unsubscribe
 } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "./firebase";
 import { Banner, Product, PopupConfig, UserProfile } from "@/types";
@@ -25,6 +27,28 @@ export async function getBannersFromFirestore(): Promise<Banner[] | null> {
     console.warn("Firestore: Error loading banners:", err);
   }
   return null;
+}
+
+/**
+ * Subscribe to real-time banner updates (instant sync between PC and cellphone)
+ */
+export function subscribeToBanners(onUpdate: (banners: Banner[]) => void): Unsubscribe | null {
+  if (!isFirebaseConfigured) return null;
+  try {
+    return onSnapshot(doc(db, "settings", "banners"), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data.list) && data.list.length > 0) {
+          onUpdate(data.list as Banner[]);
+        }
+      }
+    }, (err) => {
+      console.warn("Banners onSnapshot error:", err);
+    });
+  } catch (err) {
+    console.warn("Could not attach banners listener:", err);
+    return null;
+  }
 }
 
 /**
@@ -61,6 +85,28 @@ export async function getProductsFromFirestore(): Promise<Product[] | null> {
     console.warn("Firestore: Error loading products:", err);
   }
   return null;
+}
+
+/**
+ * Subscribe to real-time products updates
+ */
+export function subscribeToProducts(onUpdate: (products: Product[]) => void): Unsubscribe | null {
+  if (!isFirebaseConfigured) return null;
+  try {
+    return onSnapshot(doc(db, "settings", "products"), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data.list) && data.list.length > 0) {
+          onUpdate(data.list as Product[]);
+        }
+      }
+    }, (err) => {
+      console.warn("Products onSnapshot error:", err);
+    });
+  } catch (err) {
+    console.warn("Could not attach products listener:", err);
+    return null;
+  }
 }
 
 /**
@@ -131,4 +177,27 @@ export async function getUsersFromFirestore(): Promise<UserProfile[] | null> {
     console.warn("Firestore: Error loading users:", err);
   }
   return null;
+}
+
+/**
+ * Subscribe to real-time users collection updates for Admin panel
+ */
+export function subscribeToUsers(onUpdate: (users: UserProfile[]) => void): Unsubscribe | null {
+  if (!isFirebaseConfigured) return null;
+  try {
+    return onSnapshot(collection(db, "users"), (snap) => {
+      if (!snap.empty) {
+        const users: UserProfile[] = [];
+        snap.forEach((docSnap) => {
+          users.push(docSnap.data() as UserProfile);
+        });
+        onUpdate(users);
+      }
+    }, (err) => {
+      console.warn("Users onSnapshot error:", err);
+    });
+  } catch (err) {
+    console.warn("Could not attach users listener:", err);
+    return null;
+  }
 }

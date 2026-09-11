@@ -20,7 +20,9 @@ import { VIP_CHECKOUT_URL } from "@/lib/constants";
 import { 
   getBannersFromFirestore, 
   getProductsFromFirestore, 
-  getPopupFromFirestore 
+  getPopupFromFirestore,
+  subscribeToBanners,
+  subscribeToProducts
 } from "@/lib/firestore-sync";
 import { PublicProduct, Product, DeclarationCartItem, Banner, PopupConfig } from "@/types";
 import { 
@@ -116,35 +118,32 @@ export default function Home() {
       }
     }
 
-    // 2. Load latest cloud data from Firestore (shared with all devices/cellphones)
-    const loadCloudData = async () => {
-      try {
-        const [cloudBanners, cloudProducts, cloudPopup] = await Promise.allSettled([
-          getBannersFromFirestore(),
-          getProductsFromFirestore(),
-          getPopupFromFirestore(),
-        ]);
-
-        if (cloudBanners.status === "fulfilled" && cloudBanners.value && cloudBanners.value.length > 0) {
-          setBanners(cloudBanners.value);
-          localStorage.setItem("yw_banners", JSON.stringify(cloudBanners.value));
-        }
-
-        if (cloudProducts.status === "fulfilled" && cloudProducts.value && cloudProducts.value.length > 0) {
-          setProducts(cloudProducts.value);
-          localStorage.setItem("yw_products", JSON.stringify(cloudProducts.value));
-        }
-
-        if (cloudPopup.status === "fulfilled" && cloudPopup.value) {
-          setPopupConfig(cloudPopup.value);
-          localStorage.setItem("yw_popup", JSON.stringify(cloudPopup.value));
-        }
-      } catch (err) {
-        console.warn("Could not sync cloud data from Firestore:", err);
+    // 2. Real-time subscriptions to cloud banners and products (instant live sync)
+    const unsubBanners = subscribeToBanners((cloudBanners) => {
+      if (cloudBanners && cloudBanners.length > 0) {
+        setBanners(cloudBanners);
+        localStorage.setItem("yw_banners", JSON.stringify(cloudBanners));
       }
-    };
+    });
 
-    loadCloudData();
+    const unsubProducts = subscribeToProducts((cloudProducts) => {
+      if (cloudProducts && cloudProducts.length > 0) {
+        setProducts(cloudProducts);
+        localStorage.setItem("yw_products", JSON.stringify(cloudProducts));
+      }
+    });
+
+    getPopupFromFirestore().then((cloudPopup) => {
+      if (cloudPopup) {
+        setPopupConfig(cloudPopup);
+        localStorage.setItem("yw_popup", JSON.stringify(cloudPopup));
+      }
+    }).catch(() => {});
+
+    return () => {
+      if (unsubBanners) unsubBanners();
+      if (unsubProducts) unsubProducts();
+    };
   }, []);
 
   // Save cart changes

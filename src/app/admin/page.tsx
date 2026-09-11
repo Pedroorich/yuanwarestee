@@ -18,7 +18,10 @@ import {
   savePopupToFirestore, 
   getUsersFromFirestore, 
   getBannersFromFirestore, 
-  getProductsFromFirestore 
+  getProductsFromFirestore,
+  subscribeToUsers,
+  subscribeToBanners,
+  subscribeToProducts
 } from "@/lib/firestore-sync";
 import RedditBulkImporter from "@/components/RedditBulkImporter";
 import ImageUploader from "@/components/ImageUploader";
@@ -103,48 +106,27 @@ export default function AdminPage() {
       }
     }
 
-    // Load cloud data and registered users from Firestore
-    const loadCloudData = async () => {
-      // 1. Sync users from Firestore
-      try {
-        const cloudUsers = await getUsersFromFirestore();
-        if (cloudUsers && cloudUsers.length > 0) {
-          // Merge with any local users
-          const savedUsers = localStorage.getItem("yw_users_list");
-          const localList: UserProfile[] = savedUsers ? JSON.parse(savedUsers) : [];
-          
-          const mergedMap = new Map<string, UserProfile>();
-          localList.forEach(u => mergedMap.set(u.uid, u));
-          cloudUsers.forEach(u => mergedMap.set(u.uid, { ...mergedMap.get(u.uid), ...u }));
-          
-          const merged = Array.from(mergedMap.values());
-          setUsersList(merged);
-          localStorage.setItem("yw_users_list", JSON.stringify(merged));
-        }
-      } catch (err) {
-        console.warn("Could not fetch users directly from Firestore:", err);
+    // Real-time subscriptions for instant cloud sync across devices
+    const unsubUsers = subscribeToUsers((cloudUsers) => {
+      if (cloudUsers && cloudUsers.length > 0) {
+        setUsersList(cloudUsers);
+        localStorage.setItem("yw_users_list", JSON.stringify(cloudUsers));
       }
+    });
 
-      // 2. Sync banners from Firestore
-      try {
-        const cloudBanners = await getBannersFromFirestore();
-        if (cloudBanners && cloudBanners.length > 0) {
-          setBanners(cloudBanners);
-          localStorage.setItem("yw_banners", JSON.stringify(cloudBanners));
-        }
-      } catch (e) {}
+    const unsubBanners = subscribeToBanners((cloudBanners) => {
+      if (cloudBanners && cloudBanners.length > 0) {
+        setBanners(cloudBanners);
+        localStorage.setItem("yw_banners", JSON.stringify(cloudBanners));
+      }
+    });
 
-      // 3. Sync products from Firestore
-      try {
-        const cloudProducts = await getProductsFromFirestore();
-        if (cloudProducts && cloudProducts.length > 0) {
-          setProducts(cloudProducts);
-          localStorage.setItem("yw_products", JSON.stringify(cloudProducts));
-        }
-      } catch (e) {}
-    };
-
-    loadCloudData();
+    const unsubProducts = subscribeToProducts((cloudProducts) => {
+      if (cloudProducts && cloudProducts.length > 0) {
+        setProducts(cloudProducts);
+        localStorage.setItem("yw_products", JSON.stringify(cloudProducts));
+      }
+    });
 
     const savedUsers = localStorage.getItem("yw_users_list");
     if (savedUsers) {
@@ -195,6 +177,12 @@ export default function AdminPage() {
       setUsersList(defaultUsers);
       localStorage.setItem("yw_users_list", JSON.stringify(defaultUsers));
     }
+
+    return () => {
+      if (unsubUsers) unsubUsers();
+      if (unsubBanners) unsubBanners();
+      if (unsubProducts) unsubProducts();
+    };
   }, []);
 
   const showToast = (msg: string) => {
