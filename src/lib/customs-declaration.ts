@@ -1,7 +1,7 @@
-import { DeclarationCartItem, OptimizedDeclarationResult, DeclarationItemOutput } from "@/types";
+﻿import { DeclarationCartItem, OptimizedDeclarationResult, DeclarationItemOutput, PublicProduct } from "@/types";
 
 /**
- * Limpa o texto da declaração aduaneira para o padrão exigido pelas redirecionadoras:
+ * Limpa o texto da declaração aduaneira para o padrão exigido pelas redirecionadoras (CSSBuy, PandaBuy, etc.):
  * - Sem caractere '+'
  * - Sem parênteses '(' ou ')'
  * - Sem espaços duplos
@@ -19,127 +19,432 @@ export function cleanDeclarationText(text: string): string {
     .join("\n");
 }
 
-/**
- * 1. CLASSIFICAÇÃO:
- * Identifica a categoria padrão para cada item:
- * - camisetas, calçados, calça jeans, jaquetas, eletrônicos, câmeras, utilidades, etc.
- */
-export function detectStandardCategory(text: string): {
+export interface DetectedCategoryInfo {
   categoryPt: string;
   categoryEn: string;
   categoryZh: string;
-  kind: "camisetas" | "calcados" | "jaquetas" | "calcas" | "acessorios" | "eletronicos" | "outros";
-} {
-  const lower = text.toLowerCase();
+  materialPt: string;
+  materialEn: string;
+  materialZh: string;
+  defaultSizePt: string;
+  defaultSizeEn: string;
+  defaultSizeZh: string;
+  isOneSize: boolean;
+  kind:
+    | "oculos"
+    | "dryfit"
+    | "calcados"
+    | "slides"
+    | "jaquetas_windbreaker"
+    | "jaquetas_puffer"
+    | "jaquetas"
+    | "jeans"
+    | "calcas"
+    | "relogios"
+    | "joias"
+    | "bones"
+    | "bolsas"
+    | "meias_underwear"
+    | "eletronicos"
+    | "camisetas";
+}
 
-  // Tênis / Calçados / Sneakers
-  if (lower.match(/shoe|sneaker|tênis|tenis|calçado|calcado|dunk|jordan|yeezy|bapesta|runner|boot|slide|foam|air force|af1/)) {
+/**
+ * 1. CLASSIFICAÇÃO INTELIGENTE DE PRODUTOS E MATERIAIS:
+ * Analisa o título, categoria, descrição e tags para determinar com precisão:
+ * - A categoria aduaneira neutra correta (ex: Óculos de Sol, Camiseta Dry-Fit, Jaqueta Corta-Vento, etc.)
+ * - O material real específico (ex: Acetato/Policarbonato para óculos, Poliéster Tecnológico para Dry-Fit, Denim para jeans)
+ * - Se possui tamanho vestuário (M/G) ou se é Tamanho Único (One Size / Ajustável)
+ */
+export function detectStandardCategory(text: string, product?: Partial<PublicProduct>): DetectedCategoryInfo {
+  const fullText = `${text} ${product?.description || ""} ${product?.declarationCategoryPt || ""} ${(product?.tags || []).join(" ")}`.toLowerCase();
+
+  // 1. ÓCULOS / SUNGLASSES / EYEWEAR (Nunca pode ser algodão!)
+  if (fullText.match(/óculos|oculos|sunglasses|glasses|armação|armacao|lente\b|lentes|eyewear|spectacles|rayban|oakley|gentle monster|cartier|millionaire|óculos de sol|oculos de sol/)) {
+    const isMetal = fullText.match(/metal|titânio|titanio|aço|aco|gold|prata|silver|wire/);
     return {
-      categoryPt: "Calçado Esportivo",
-      categoryEn: "Sports Casual Shoes",
-      categoryZh: "运动休闲鞋",
+      categoryPt: "Óculos de Sol Proteção UV",
+      categoryEn: "Fashion Sunglasses UV Protection",
+      categoryZh: "时尚防紫外线太阳镜",
+      materialPt: isMetal ? "Metal e Policarbonato Resistente" : "Acetato e Policarbonato com Filtro UV",
+      materialEn: isMetal ? "Metal Alloy and Polycarbonate UV Lenses" : "Acetate and Polycarbonate UV Lenses",
+      materialZh: isMetal ? "金属合金与聚碳酸酯防紫外线镜片" : "板材醋酸纤维与聚碳酸酯UV镜片",
+      defaultSizePt: "Tamanho Único",
+      defaultSizeEn: "One Size",
+      defaultSizeZh: "均码",
+      isOneSize: true,
+      kind: "oculos",
+    };
+  }
+
+  // 2. RELÓGIOS / WATCHES (Aço, quartzo, vidro mineral)
+  if (fullText.match(/relógio|relogio|watch\b|wrist watch|quartz|cronógrafo|cronografo|rolex|casio|g-shock|omega|patek|audemars/)) {
+    const isLeather = fullText.match(/couro|leather|pulseira de couro/);
+    return {
+      categoryPt: "Relógio de Pulso Quartz Casual",
+      categoryEn: "Casual Quartz Wristwatch",
+      categoryZh: "时尚休闲石英腕表",
+      materialPt: isLeather ? "Aço Inoxidável e Pulseira de Couro PU" : "Aço Inoxidável e Vidro Mineral",
+      materialEn: isLeather ? "Stainless Steel and PU Leather Strap" : "Stainless Steel and Mineral Crystal Glass",
+      materialZh: isLeather ? "不锈钢与皮质表带" : "不锈钢与矿物强化玻璃",
+      defaultSizePt: "Tamanho Único",
+      defaultSizeEn: "One Size",
+      defaultSizeZh: "均码",
+      isOneSize: true,
+      kind: "relogios",
+    };
+  }
+
+  // 3. JOIAS / CORRENTES / ANÉIS / PULSEIRAS (Titânio, aço inox)
+  if (fullText.match(/corrente|colar\b|necklace|ring\b|anel\b|pulseira|bracelet|pingente|pendant|brinco|earring|choker|chain\b|jewelry|joia|bijuteria/)) {
+    return {
+      categoryPt: "Acessório de Joalheria de Moda",
+      categoryEn: "Fashion Jewelry Accessory",
+      categoryZh: "时尚饰品配件",
+      materialPt: "Liga Metálica de Titânio e Aço Inox",
+      materialEn: "Titanium Alloy and Stainless Steel",
+      materialZh: "高光泽钛钢合金",
+      defaultSizePt: "Tamanho Único",
+      defaultSizeEn: "One Size",
+      defaultSizeZh: "均码",
+      isOneSize: true,
+      kind: "joias",
+    };
+  }
+
+  // 4. BOLSAS / MOCHILAS / SHOULDER BAGS / CARTEIRAS (Nylon, cordura, couro PU)
+  if (fullText.match(/shoulder|backpack|mochila|carteira|wallet|tote bag|crossbody|pouch|bolsa|duffle|clutch/)) {
+    const isLeather = fullText.match(/couro|leather/);
+    return {
+      categoryPt: "Bolsa Tiracolo Casual",
+      categoryEn: "Casual Crossbody Shoulder Bag",
+      categoryZh: "便携式多功能单肩斜挎包",
+      materialPt: isLeather ? "Couro Sintético PU de Alta Resistência" : "Nylon Poliéster Resistente à Água",
+      materialEn: isLeather ? "Durable Synthetic PU Leather" : "Water Resistant Polyester Cordura Nylon",
+      materialZh: isLeather ? "耐磨环保PU合成革" : "高密度耐磨防水尼龙聚酯纤维",
+      defaultSizePt: "Tamanho Único",
+      defaultSizeEn: "One Size",
+      defaultSizeZh: "均码",
+      isOneSize: true,
+      kind: "bolsas",
+    };
+  }
+
+  // 5. BONÉS / GORROS / CHAPÉUS (Algodão sarjado ajustável ou lã acrílica)
+  if (fullText.match(/boné|bone\b|cap\b|baseball cap|gorro|beanie|bucket hat|bucket\b|chapéu|chapeu|fitted cap/)) {
+    const isBeanie = fullText.match(/gorro|beanie|lã|trico|knit/);
+    if (isBeanie) {
+      return {
+        categoryPt: "Gorro Tricotado de Inverno",
+        categoryEn: "Knitted Winter Beanie Hat",
+        categoryZh: "针织保暖毛线帽",
+        materialPt: "Fio Acrílico e Lã Macia Térmica",
+        materialEn: "Soft Knitted Thermal Acrylic Yarn",
+        materialZh: "高弹保暖晴纶针织毛线",
+        defaultSizePt: "Tamanho Único",
+        defaultSizeEn: "One Size",
+        defaultSizeZh: "均码",
+        isOneSize: true,
+        kind: "bones",
+      };
+    }
+    return {
+      categoryPt: "Boné Casual Ajustável",
+      categoryEn: "Adjustable Casual Baseball Cap",
+      categoryZh: "休闲时尚棒球遮阳帽",
+      materialPt: "Algodão Sarjado com Fecho Ajustável",
+      materialEn: "Breathable Cotton Twill with Adjustable Strap",
+      materialZh: "高密透气纯棉斜纹布",
+      defaultSizePt: "Ajustável",
+      defaultSizeEn: "Adjustable",
+      defaultSizeZh: "均码可调节",
+      isOneSize: true,
+      kind: "bones",
+    };
+  }
+
+  // 6. CHINELOS / SLIDES / FOAM RUNNER (EVA injetado)
+  if (fullText.match(/slide|chinelo|slipper|foam runner|yeezy slide|tamanco|sandália|sandalia/)) {
+    return {
+      categoryPt: "Chinelo Slide Casual Confort",
+      categoryEn: "Casual Comfort Slide Sandals",
+      categoryZh: "休闲舒适轻便拖鞋",
+      materialPt: "Espuma EVA Injetada Macia",
+      materialEn: "Soft Injected High Density EVA Foam",
+      materialZh: "高弹轻便发泡EVA环保材质",
+      defaultSizePt: "42 BR",
+      defaultSizeEn: "Size 42",
+      defaultSizeZh: "42码",
+      isOneSize: false,
+      kind: "slides",
+    };
+  }
+
+  // 7. TÊNIS / SNEAKERS / CALÇADOS
+  if (fullText.match(/shoe|sneaker|tênis|tenis|calçado|calcado|dunk|jordan|yeezy|bapesta|runner|boot|bota|air force|af1|sola/)) {
+    const isLeather = fullText.match(/couro|leather|camurça|suede/);
+    return {
+      categoryPt: "Calçado Esportivo Casual",
+      categoryEn: "Casual Sports Walking Shoes",
+      categoryZh: "时尚运动休闲慢跑鞋",
+      materialPt: isLeather ? "Couro Sintético e Sola de Borracha Antiderrapante" : "Tecido Sintético Respirável e Sola de Borracha",
+      materialEn: isLeather ? "Synthetic Leather Upper with Rubber Sole" : "Breathable Synthetic Fabric with Rubber Sole",
+      materialZh: isLeather ? "耐磨合成革鞋面与耐磨防滑橡胶底" : "透气织物鞋面与防滑减震橡胶底",
+      defaultSizePt: "42 BR",
+      defaultSizeEn: "Size 42",
+      defaultSizeZh: "42码",
+      isOneSize: false,
       kind: "calcados",
     };
   }
 
-  // Jaquetas / Casacos / Hoodies / Moletons
-  if (lower.match(/hoodie|moletom|crewneck|sweatshirt|pullover|jacket|jaqueta|puffer|coat|fleece|windbreaker|bomber|parka/)) {
+  // 8. ROUPAS DRY-FIT / TECIDO TÉCNICO ESPORTIVO (Poliéster / Poliamida / Elastano)
+  if (fullText.match(/dry fit|dry-fit|dryfit|dri-fit|dri fit|dry\b|polyester|poliester|poliamida|esportiv|treino|gym|futebol|jersey|ciclismo|tecido técnico|tecido tecnico|tactel|running|aeroready|therma-fit|breathable|academia/)) {
+    const isShorts = fullText.match(/short|bermuda|calção|calcao/);
+    if (isShorts) {
+      return {
+        categoryPt: "Shorts Esportivo Dry-Fit Respirável",
+        categoryEn: "Breathable Dry-Fit Sports Shorts",
+        categoryZh: "速干透气高弹运动短裤",
+        materialPt: "Poliéster Tecnológico e Elastano Respirável",
+        materialEn: "Breathable Polyester and Spandex Synthetic Fabric",
+        materialZh: "吸湿排汗速干聚酯纤维与氨纶",
+        defaultSizePt: "M",
+        defaultSizeEn: "Size M",
+        defaultSizeZh: "M码",
+        isOneSize: false,
+        kind: "dryfit",
+      };
+    }
     return {
-      categoryPt: "Casaco de Algodão",
-      categoryEn: "Cotton Jacket Outerwear",
-      categoryZh: "棉质夹克外套",
+      categoryPt: "Camiseta Esportiva Respirável Dry-Fit",
+      categoryEn: "Breathable Dry-Fit Sports T-Shirt",
+      categoryZh: "透气速干运动短袖T恤",
+      materialPt: "Poliéster Tecnológico e Elastano Respirável",
+      materialEn: "Breathable Polyester and Spandex Synthetic Fabric",
+      materialZh: "高弹速干透气聚酯纤维与氨纶",
+      defaultSizePt: "M",
+      defaultSizeEn: "Size M",
+      defaultSizeZh: "M码",
+      isOneSize: false,
+      kind: "dryfit",
+    };
+  }
+
+  // 9. CORTA-VENTO / WINDBREAKER / NYLON (Repelente à água)
+  if (fullText.match(/windbreaker|corta vento|corta-vento|nylon|impermeável|impermeavel|waterproof|anorak|tactel jacket/)) {
+    return {
+      categoryPt: "Jaqueta Corta-Vento Leve",
+      categoryEn: "Lightweight Windbreaker Outerwear Jacket",
+      categoryZh: "轻便防风运动夹克",
+      materialPt: "Nylon Poliamida Corta-Vento Repelente à Água",
+      materialEn: "Water Repellent Windproof Polyamide Nylon",
+      materialZh: "防风防泼水高密尼龙锦纶面料",
+      defaultSizePt: "M",
+      defaultSizeEn: "Size M",
+      defaultSizeZh: "M码",
+      isOneSize: false,
+      kind: "jaquetas_windbreaker",
+    };
+  }
+
+  // 10. PUFFER / DOWN / JAQUETA TÉRMICA ACOLCHOADA
+  if (fullText.match(/puffer|down jacket|acolchoado|plumagem|moncler|nuptse|thermal jacket|casaco pesado/)) {
+    return {
+      categoryPt: "Jaqueta Térmica Acolchoada",
+      categoryEn: "Thermal Quilted Puffer Jacket",
+      categoryZh: "保暖防风羽绒棉服外套",
+      materialPt: "Poliéster com Enchimento Térmico Sintético",
+      materialEn: "Polyester with Thermal Synthetic Down Filling",
+      materialZh: "高密防风聚酯纤维与保暖羽绒棉",
+      defaultSizePt: "M",
+      defaultSizeEn: "Size M",
+      defaultSizeZh: "M码",
+      isOneSize: false,
+      kind: "jaquetas_puffer",
+    };
+  }
+
+  // 11. JAQUETAS / CASACOS / MOLETONS / HOODIES
+  if (fullText.match(/hoodie|moletom|crewneck|sweatshirt|pullover|jacket|jaqueta|coat|fleece|bomber|parka|cardigan|casaco/)) {
+    return {
+      categoryPt: "Agasalho Moletom Casual com Capuz",
+      categoryEn: "Casual Fleece Pullover Hoodie",
+      categoryZh: "男女通用加厚保暖连帽卫衣",
+      materialPt: "Algodão e Poliéster Flanelado Macio",
+      materialEn: "Soft Cotton Polyester Fleece Blend",
+      materialZh: "加厚保暖抓绒纯棉混纺面料",
+      defaultSizePt: "M",
+      defaultSizeEn: "Size M",
+      defaultSizeZh: "M码",
+      isOneSize: false,
       kind: "jaquetas",
     };
   }
 
-  // Calças / Bermudas / Jeans
-  if (lower.match(/pant|cargo|calça|calca|jeans|sweatpant|track|denim|short\b|bermuda/)) {
+  // 12. JEANS / DENIM / SARJA
+  if (fullText.match(/jeans|denim|calça jeans|calca jeans|sarja|twill/)) {
     return {
-      categoryPt: "Calça Casual",
-      categoryEn: "Casual Pants Trousers",
-      categoryZh: "休闲长裤",
+      categoryPt: "Calça Jeans Casual",
+      categoryEn: "Casual Denim Jeans Trousers",
+      categoryZh: "经典百搭牛仔长裤",
+      materialPt: "Tecido Denim Algodão Resistente",
+      materialEn: "Durable Cotton Denim Fabric",
+      materialZh: "高耐磨高克重纯棉牛仔布",
+      defaultSizePt: "42",
+      defaultSizeEn: "Size 42",
+      defaultSizeZh: "42码",
+      isOneSize: false,
+      kind: "jeans",
+    };
+  }
+
+  // 13. CALÇAS CASUAIS / CARGO / SHORTS / BERMUDAS (Não Jeans)
+  if (fullText.match(/pant|cargo|calça|calca|sweatpant|track pant|short\b|bermuda/)) {
+    const isShort = fullText.match(/short|bermuda/);
+    if (isShort) {
+      return {
+        categoryPt: "Bermuda Casual Confort",
+        categoryEn: "Casual Comfort Shorts",
+        categoryZh: "休闲舒适透气短裤",
+        materialPt: "Algodão e Poliéster Respirável",
+        materialEn: "Breathable Cotton Polyester Blend",
+        materialZh: "舒适透气棉质混纺面料",
+        defaultSizePt: "M",
+        defaultSizeEn: "Size M",
+        defaultSizeZh: "M码",
+        isOneSize: false,
+        kind: "calcas",
+      };
+    }
+    return {
+      categoryPt: "Calça Casual Confort",
+      categoryEn: "Casual Comfort Trousers",
+      categoryZh: "休闲百搭运动长裤",
+      materialPt: "Algodão Sarjado e Poliéster Confort",
+      materialEn: "Cotton Twill Polyester Blend",
+      materialZh: "耐磨抗皱纯棉混纺斜纹布",
+      defaultSizePt: "M",
+      defaultSizeEn: "Size M",
+      defaultSizeZh: "M码",
+      isOneSize: false,
       kind: "calcas",
     };
   }
 
-  // Cintos / Acessórios / Bonés
-  if (lower.match(/bag|cap|boné|bone|belt|cinto|wallet|watch|carteira|óculos|oculos|beanie|meia|sock|backpack|necklace|ring|acessório|acessorio/)) {
+  // 14. MEIAS / CUECAS / UNDERWEAR
+  if (fullText.match(/meia\b|meias|sock|socks|cueca|cuecas|underwear|boxer/)) {
     return {
-      categoryPt: "Acessório Casual",
-      categoryEn: "Fashion Accessory",
-      categoryZh: "时尚配饰",
-      kind: "acessorios",
+      categoryPt: "Meias Casuais de Cano Médio",
+      categoryEn: "Casual Cotton Crew Socks",
+      categoryZh: "舒适高弹中筒纯棉袜",
+      materialPt: "Algodão Penteado com Elastano Macio",
+      materialEn: "Combed Cotton with Elastic Spandex",
+      materialZh: "高弹透气精梳棉混纺",
+      defaultSizePt: "Tamanho Único",
+      defaultSizeEn: "One Size",
+      defaultSizeZh: "均码",
+      isOneSize: true,
+      kind: "meias_underwear",
     };
   }
 
-  // Eletrônicos / Câmeras
-  if (lower.match(/camera|câmera|eletrônico|eletronico|phone|headphone|earphone|fone|digital|gadget/)) {
+  // 15. ELETRÔNICOS / GADGETS / CÂMERAS
+  if (fullText.match(/camera|câmera|eletrônico|eletronico|phone|headphone|earphone|fone|digital|gadget|charger|carregador|cabo/)) {
     return {
-      categoryPt: "Dispositivo Eletrônico",
-      categoryEn: "Electronic Device Gadget",
-      categoryZh: "便携电子设备",
+      categoryPt: "Dispositivo Eletrônico Portátil Utilitário",
+      categoryEn: "Compact Portable Utility Electronic Gadget",
+      categoryZh: "便携式小型电子设备配件",
+      materialPt: "Plástico ABS e Componentes Eletrônicos Básicos",
+      materialEn: "ABS Plastic and Basic Electronic Components",
+      materialZh: "阻燃ABS工程塑料与电子元件",
+      defaultSizePt: "Tamanho Único",
+      defaultSizeEn: "One Size",
+      defaultSizeZh: "均码",
+      isOneSize: true,
       kind: "eletronicos",
     };
   }
 
-  // Camisetas / Tops / Básicas (Default)
+  // 16. CAMISETAS STREETWEAR 100% ALGODÃO (Default para Vestuário)
   return {
-    categoryPt: "Camiseta de Algodão",
-    categoryEn: "Cotton Short Sleeve T-shirt",
-    categoryZh: "棉质短袖T恤",
+    categoryPt: "Camiseta Casual Unissex Gola Redonda",
+    categoryEn: "Unisex Casual Crewneck Short Sleeve T-Shirt",
+    categoryZh: "男女通用圆领短袖纯棉休闲T恤",
+    materialPt: "100% Algodão Malha Penteada Fio 30.1",
+    materialEn: "100% High Quality Combed Cotton Knit",
+    materialZh: "100% 精梳高密纯棉针织面料",
+    defaultSizePt: "M",
+    defaultSizeEn: "Size M",
+    defaultSizeZh: "M码",
+    isOneSize: false,
     kind: "camisetas",
   };
 }
 
 /**
- * 2. VALOR DECLARADO OTIMIZADO (ESTRATÉGIA FISCAL):
- * - Camisetas / Tops / Básicas: Proponha entre $2.00 e $2.50 USD (preferencialmente $2.00).
- * - Tênis / Calçados / Sneakers: Proponha entre $6.00 e $8.00 USD (ex: $6.00, $6.40, $6.80).
- * - Jaquetas / Casacos / Hoodies: Proponha entre $4.00 e $6.00 USD (ex: $5.00).
- * - Calças / Bermudas / Jeans: Proponha entre $3.00 e $6.00 USD (ex: $3.70, $4.00).
- * - Cintos / Acessórios / Bonés: Proponha entre $1.00 e $2.00 USD (ex: $1.10).
- * - Outros produtos (Eletrônicos, Câmeras, Utilidades): Proponha entre $5.00 e $15.00 USD.
- */
-/**
  * 2. VALOR DECLARADO OTIMIZADO (ESTRATÉGIA FISCAL COM MARGENS VARIADAS):
- * - Camisetas / Tops: $2.00 a $3.50 USD (ex: $2.10, $2.40, $2.70, $3.00, $3.40).
- * - Tênis / Calçados / Sneakers: $6.00 a $8.00 USD (ex: $6.10, $6.50, $6.90, $7.30, $7.80).
- * - Jaquetas / Casacos / Hoodies: $4.00 a $6.00 USD (ex: $4.20, $4.60, $5.10, $5.60, $5.90).
- * - Calças / Bermudas / Jeans: $3.00 a $6.00 USD (ex: $3.20, $3.70, $4.20, $4.80, $5.40).
- * - Cintos / Acessórios / Bonés: $1.00 a $2.00 USD (ex: $1.10, $1.30, $1.50, $1.80).
- * - Outros produtos (Eletrônicos, Câmeras, Utilidades): $5.00 a $15.00 USD (ex: $10.50, $12.40, $14.20).
+ * - Camisetas / Dry-Fit: $2.00 a $3.50 USD
+ * - Tênis / Calçados: $6.00 a $8.00 USD
+ * - Jaquetas Puffer: $5.50 a $8.00 USD
+ * - Jaquetas Corta-Vento / Moletons: $4.20 a $5.90 USD
+ * - Calças / Jeans: $3.30 a $5.50 USD
+ * - Óculos: $2.50 a $4.50 USD (ex: $2.80, $3.20, $3.60, $4.10)
+ * - Relógios: $5.00 a $9.50 USD
+ * - Joias / Colares: $1.20 a $2.50 USD
+ * - Bonés / Meias / Acessórios: $1.10 a $2.20 USD
+ * - Eletrônicos: $8.00 a $14.50 USD
  * Os preços variam entre os itens da mesma categoria para não repetir o mesmo valor!
  */
 export function getOptimizedUnitPrice(kind: string, index: number): number {
   switch (kind) {
+    case "oculos": {
+      const options = [2.80, 3.20, 3.60, 4.10, 2.90, 3.50, 4.30];
+      return options[index % options.length];
+    }
+    case "dryfit":
     case "camisetas": {
-      // Margem entre $2.00 e $3.50 USD com variação
       const options = [2.10, 2.40, 2.70, 3.00, 3.30, 2.20, 2.60, 2.90, 3.20, 3.50];
       return options[index % options.length];
     }
     case "calcados": {
-      // Margem entre $6.00 e $8.00 USD
       const options = [6.20, 6.60, 7.10, 6.40, 7.50, 6.80, 7.80];
       return options[index % options.length];
     }
+    case "slides": {
+      const options = [3.20, 3.60, 4.10, 3.80, 4.50];
+      return options[index % options.length];
+    }
+    case "jaquetas_puffer": {
+      const options = [5.60, 6.20, 6.80, 7.40, 6.10, 7.80];
+      return options[index % options.length];
+    }
+    case "jaquetas_windbreaker":
     case "jaquetas": {
-      // Margem entre $4.00 e $6.00 USD
       const options = [4.30, 4.80, 5.20, 5.60, 4.50, 5.80];
       return options[index % options.length];
     }
+    case "jeans":
     case "calcas": {
-      // Margem entre $3.00 e $6.00 USD
       const options = [3.30, 3.80, 4.30, 4.70, 5.20, 3.60];
       return options[index % options.length];
     }
-    case "acessorios": {
-      // Margem entre $1.00 e $2.00 USD
-      const options = [1.10, 1.30, 1.50, 1.70, 1.40, 1.80];
+    case "relogios": {
+      const options = [5.50, 6.80, 7.90, 8.60, 9.20];
+      return options[index % options.length];
+    }
+    case "joias":
+    case "bones":
+    case "meias_underwear": {
+      const options = [1.20, 1.40, 1.60, 1.80, 1.30, 1.90];
+      return options[index % options.length];
+    }
+    case "bolsas": {
+      const options = [2.80, 3.40, 3.90, 4.50, 3.10];
       return options[index % options.length];
     }
     case "eletronicos": {
-      // Margem entre $5.00 e $15.00 USD
-      const options = [10.50, 12.30, 13.80, 11.20, 14.50];
+      const options = [9.50, 11.30, 12.80, 10.40, 14.20];
       return options[index % options.length];
     }
     default: {
@@ -150,54 +455,24 @@ export function getOptimizedUnitPrice(kind: string, index: number): number {
 }
 
 /**
- * 5. DESCRIÇÃO TÉCNICA INDIVIDUAL:
- * Neutra, sem marcas, indicando tipo, cor, tamanho, material e uso pessoal.
+ * 3. DESCRIÇÃO TÉCNICA INDIVIDUAL:
+ * Neutra, sem marcas registradas, indicando produto, cor, tamanho, material real e uso pessoal.
  * Sem caractere '+' e sem parênteses '()'.
  */
 function generateTechnicalDescriptions(
   item: DeclarationCartItem,
-  categoryInfo: ReturnType<typeof detectStandardCategory>
+  categoryInfo: DetectedCategoryInfo
 ): { pt: string; en: string; zh: string } {
-  const color = (item.color || "Preto").replace(/[\+\(\)]/g, " ").trim();
-  const size = (item.size || "M").replace(/[\+\(\)]/g, " ").trim();
+  const cleanColor = (item.color || "Preto").replace(/[\+\(\)]/g, " ").trim();
+  
+  // Se for acessório/óculos/relógio, tamanho deve ser Tamanho Único
+  const effectiveSizePt = categoryInfo.isOneSize ? categoryInfo.defaultSizePt : (item.size || categoryInfo.defaultSizePt).replace(/[\+\(\)]/g, " ").trim();
+  const effectiveSizeEn = categoryInfo.isOneSize ? categoryInfo.defaultSizeEn : (item.size || categoryInfo.defaultSizeEn).replace(/[\+\(\)]/g, " ").trim();
+  const effectiveSizeZh = categoryInfo.isOneSize ? categoryInfo.defaultSizeZh : (item.size || categoryInfo.defaultSizeZh).replace(/[\+\(\)]/g, " ").trim();
 
-  let ptDesc = "";
-  let enDesc = "";
-  let zhDesc = "";
-
-  switch (categoryInfo.kind) {
-    case "calcados":
-      ptDesc = `Calçado esportivo casual unissex em tecido sintético e sola de borracha Cor ${color} Tamanho ${size} para uso pessoal`;
-      enDesc = `Unisex casual sports shoes synthetic fabric and rubber sole Color ${color} Size ${size} for personal use`;
-      zhDesc = `休闲运动鞋 橡胶底 颜色 ${color} 尺码 ${size} 个人自用`;
-      break;
-    case "jaquetas":
-      ptDesc = `Casaco agasalho unissex em malha de algodão e poliéster Cor ${color} Tamanho ${size} para uso pessoal`;
-      enDesc = `Unisex outerwear jacket in cotton polyester blend Color ${color} Size ${size} for personal use`;
-      zhDesc = `男女通用休闲夹克 棉混纺 颜色 ${color} 尺码 ${size} 个人自用`;
-      break;
-    case "calcas":
-      ptDesc = `Calça casual unissex em tecido algodão com bolsos Cor ${color} Tamanho ${size} para uso pessoal`;
-      enDesc = `Unisex casual trousers cotton fabric with pockets Color ${color} Size ${size} for personal use`;
-      zhDesc = `男女休闲长裤 棉质带口袋 颜色 ${color} 尺码 ${size} 个人自用`;
-      break;
-    case "acessorios":
-      ptDesc = `Acessório de vestuário casual em tecido e metal Cor ${color} Tamanho ${size} para uso pessoal`;
-      enDesc = `Casual clothing fashion accessory fabric and metal Color ${color} Size ${size} for personal use`;
-      zhDesc = `日常服装服饰配件 颜色 ${color} 尺码 ${size} 个人自用`;
-      break;
-    case "eletronicos":
-      ptDesc = `Dispositivo eletrônico portátil utilitário compacto Cor ${color} Tamanho ${size} para uso pessoal`;
-      enDesc = `Compact portable utility electronic gadget device Color ${color} Size ${size} for personal use`;
-      zhDesc = `便携式多功能电子设备 颜色 ${color} 尺码 ${size} 个人自用`;
-      break;
-    default:
-      // Camisetas
-      ptDesc = `Camiseta casual unissex gola redonda 100% algodão Cor ${color} Tamanho ${size} para uso pessoal`;
-      enDesc = `Unisex casual round neck 100% cotton short sleeve t-shirt Color ${color} Size ${size} for personal use`;
-      zhDesc = `男女通用圆领纯棉短袖T恤 颜色 ${color} 尺码 ${size} 个人自用`;
-      break;
-  }
+  let ptDesc = `${categoryInfo.categoryPt} unissex em ${categoryInfo.materialPt} Cor ${cleanColor} Tamanho ${effectiveSizePt} para uso pessoal`;
+  let enDesc = `Unisex ${categoryInfo.categoryEn} in ${categoryInfo.materialEn} Color ${cleanColor} Size ${effectiveSizeEn} for personal use`;
+  let zhDesc = `${categoryInfo.categoryZh} ${categoryInfo.materialZh} 颜色 ${cleanColor} 尺码 ${effectiveSizeZh} 个人自用`;
 
   return {
     pt: cleanDeclarationText(ptDesc),
@@ -229,18 +504,20 @@ export function generateOptimizedCustomsDeclaration(
     const weightPerUnit = cartItem.weightGrams || product.estimatedWeightGrams || 500;
     totalWeightGrams += weightPerUnit * qty;
 
-    // 1. Classificação
-    const categoryInfo = detectStandardCategory(`${product.title} ${product.category} ${product.declarationCategoryPt || ""}`);
+    // 1. Classificação e detecção precisa do material real do produto
+    const categoryInfo = detectStandardCategory(
+      `${product.title} ${product.category} ${product.declarationCategoryPt || ""}`,
+      product
+    );
 
     // 2. Preço Otimizado (com variação para cada item, respeitando o teto da categoria)
     const unitPrice = getOptimizedUnitPrice(categoryInfo.kind, idx);
     const totalPrice = parseFloat((unitPrice * qty).toFixed(2));
     totalValueUsd += totalPrice;
 
-    // 5. Descrição Técnica
+    // 3. Descrição Técnica Neutra Completa
     const techDescs = generateTechnicalDescriptions(cartItem, categoryInfo);
 
-    // Salvar item com EXATAMENTE o mesmo ID original da entrada (Regra de Exclusividade Absoluta)
     outputItems.push({
       id: product.id,
       technicalDescription: techDescs.pt,
@@ -250,34 +527,34 @@ export function generateOptimizedCustomsDeclaration(
       ncmCode: "",
     });
 
-    // 6. Formatação CSSBUY:
-    // [Nome Comercial / Nome Original do Site] | [Quantidade][Produto], [Cor] [Tamanho], [Material], [Atributo]. $[Preço Otimizado]
-    // Regra do Usuário: Nome da peça original do site SEMPRE na frente, antes da "|" e depois da barra a declaração do devido produto!
+    // 4. Formatação Padrão CSSBUY:
+    // [Nome Comercial do Site] | [Quantidade][Categoria Aduaneira], [Cor] [Tamanho Adequado], [Material Real Específico], Uso Pessoal. $[Preço]
     const cleanOriginalTitle = cleanDeclarationText(product.title || categoryInfo.categoryPt);
     const qtyPrefix = qty === 1 ? "" : `${qty}u `;
     const cleanColor = (cartItem.color || "Preto").replace(/[\+\(\)]/g, " ").trim();
-    const cleanSize = (cartItem.size || "M").replace(/[\+\(\)]/g, " ").trim();
+    
+    // Tratamento de Tamanho: Óculos, relógios, bolsas e joias recebem "Tamanho Único" em vez de P/M/G
+    const effectiveSizePt = categoryInfo.isOneSize ? categoryInfo.defaultSizePt : (cartItem.size || categoryInfo.defaultSizePt).replace(/[\+\(\)]/g, " ").trim();
+    const effectiveSizeEn = categoryInfo.isOneSize ? categoryInfo.defaultSizeEn : (cartItem.size || categoryInfo.defaultSizeEn).replace(/[\+\(\)]/g, " ").trim();
+    const effectiveSizeZh = categoryInfo.isOneSize ? categoryInfo.defaultSizeZh : (cartItem.size || categoryInfo.defaultSizeZh).replace(/[\+\(\)]/g, " ").trim();
 
     // Linha Português
-    const linePt = `${cleanOriginalTitle} | ${qtyPrefix}${categoryInfo.categoryPt}, ${cleanColor} ${cleanSize}, Algodão e Sintético, Uso Pessoal. $${totalPrice.toFixed(2)}`;
+    const linePt = `${cleanOriginalTitle} | ${qtyPrefix}${categoryInfo.categoryPt}, ${cleanColor} ${effectiveSizePt}, ${categoryInfo.materialPt}, Uso Pessoal. $${totalPrice.toFixed(2)}`;
     cssbuyLinesPt.push(cleanDeclarationText(linePt));
 
-    // Linha Inglês (Para redirecionadora)
-    const lineEn = `${cleanOriginalTitle} | ${qtyPrefix}${categoryInfo.categoryEn}, ${cleanColor} ${cleanSize}, Cotton Synthetic, Personal Use. $${totalPrice.toFixed(2)}`;
+    // Linha Inglês (Padrão Oficial de Envio das Redirecionadoras)
+    const lineEn = `${cleanOriginalTitle} | ${qtyPrefix}${categoryInfo.categoryEn}, ${cleanColor} ${effectiveSizeEn}, ${categoryInfo.materialEn}, Personal Use. $${totalPrice.toFixed(2)}`;
     cssbuyLinesEn.push(cleanDeclarationText(lineEn));
 
     // Linha Chinês
-    const lineZh = `${cleanOriginalTitle} | ${qtyPrefix}${categoryInfo.categoryZh}, ${cleanColor} ${cleanSize}, 混纺棉质, 个人日常. $${totalPrice.toFixed(2)}`;
+    const lineZh = `${cleanOriginalTitle} | ${qtyPrefix}${categoryInfo.categoryZh}, ${cleanColor} ${effectiveSizeZh}, ${categoryInfo.materialZh}, 个人自用. $${totalPrice.toFixed(2)}`;
     cssbuyLinesZh.push(cleanDeclarationText(lineZh));
   });
 
   const totalWeightKg = parseFloat((totalWeightGrams / 1000).toFixed(2));
   totalValueUsd = parseFloat(totalValueUsd.toFixed(2));
 
-  // 4. ALERTA DE FISCALIZAÇÃO (RADAR ADUANEIRO):
-  // - 'baixo': Peso total < 2kg, quantidade de itens < 4 un, valor total < $50 USD.
-  // - 'medio': Peso entre 2kg e 5kg, itens variados de grife (réplicas), ou valor próximo de $50 USD.
-  // - 'alto': Peso > 5kg, indícios de destinação comercial (peças repetidas), ou valor excedendo $50 USD.
+  // 5. Radar Aduaneiro de Risco de Taxação
   let alertLevel: "baixo" | "medio" | "alto" = "baixo";
   let alertExplanation = "";
   let taxPossibility = "Baixa (5% a 15%)";
