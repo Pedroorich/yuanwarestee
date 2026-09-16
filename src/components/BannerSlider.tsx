@@ -6,12 +6,12 @@ import { ChevronLeft, ChevronRight, ArrowUpRight } from "lucide-react";
 import { VIP_CHECKOUT_URL } from "@/lib/constants";
 
 interface BannerSliderProps {
-  banners: Banner[];
+  banners?: Banner[];
   onOpenVipModal?: () => void;
 }
 
-export default function BannerSlider({ banners, onOpenVipModal }: BannerSliderProps) {
-  const activeBanners = banners.filter((b) => b.active);
+export default function BannerSlider({ banners = [], onOpenVipModal }: BannerSliderProps) {
+  const activeBanners = (Array.isArray(banners) ? banners : []).filter((b) => b && b.active);
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export default function BannerSlider({ banners, onOpenVipModal }: BannerSliderPr
         {/* Background Image with Dark Vignette */}
         <div
           className="absolute inset-0 bg-cover bg-center transition-all duration-700 ease-out"
-          style={{ backgroundImage: `url(${current.imageUrl})` }}
+          style={{ backgroundImage: `url(${current?.imageUrl || "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=1600"})` }}
         >
           <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/30" />
           <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/40 to-transparent" />
@@ -56,7 +56,7 @@ export default function BannerSlider({ banners, onOpenVipModal }: BannerSliderPr
             Curadoria Direta de Fábricas
           </span>
           <h2 className="mt-2 text-2xl sm:text-4xl font-black tracking-tight text-white uppercase leading-tight">
-            {current.title}
+            {current?.title || "Destaque"}
           </h2>
           {current.subtitle && (
             <p className="mt-2 text-xs sm:text-sm text-zinc-300 max-w-lg leading-relaxed">

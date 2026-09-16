@@ -77,106 +77,143 @@ export default function AdminPage() {
   const [isBannerModalOpen, setIsBannerModalOpen] = useState(false);
   const [uploadedBannerImage, setUploadedBannerImage] = useState<string>("");
 
+  const safeSetLocalStorage = (key: string, value: any) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.warn(`Could not save ${key} to localStorage:`, e);
+    }
+  };
+
   // Load from Storage
   useEffect(() => {
-    const savedProducts = localStorage.getItem("yw_products");
-    if (savedProducts) {
-      try {
-        setProducts(JSON.parse(savedProducts));
-      } catch (e) {
-        console.error(e);
+    try {
+      const savedProducts = localStorage.getItem("yw_products");
+      if (savedProducts) {
+        const parsed = JSON.parse(savedProducts);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setProducts(parsed);
+        }
       }
+    } catch (e) {
+      console.warn("yw_products parse error:", e);
     }
 
-    const savedBanners = localStorage.getItem("yw_banners");
-    if (savedBanners) {
-      try {
-        setBanners(JSON.parse(savedBanners));
-      } catch (e) {
-        console.error(e);
+    try {
+      const savedBanners = localStorage.getItem("yw_banners");
+      if (savedBanners) {
+        const parsed = JSON.parse(savedBanners);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setBanners(parsed);
+        }
       }
+    } catch (e) {
+      console.warn("yw_banners parse error:", e);
     }
 
-    const savedPopup = localStorage.getItem("yw_popup");
-    if (savedPopup) {
-      try {
-        setPopupConfig(JSON.parse(savedPopup));
-      } catch (e) {
-        console.error(e);
+    try {
+      const savedPopup = localStorage.getItem("yw_popup");
+      if (savedPopup) {
+        const parsed = JSON.parse(savedPopup);
+        if (parsed && typeof parsed === "object") {
+          setPopupConfig(parsed);
+        }
       }
+    } catch (e) {
+      console.warn("yw_popup parse error:", e);
+    }
+
+    try {
+      const savedUsers = localStorage.getItem("yw_users_list");
+      if (savedUsers) {
+        const parsed = JSON.parse(savedUsers);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setUsersList(parsed);
+        }
+      } else {
+        const defaultUsers: UserProfile[] = [
+          {
+            uid: "lead-001",
+            email: "joao.importador@gmail.com",
+            displayName: "João Silva",
+            photoURL: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
+            role: "free",
+            createdAt: Date.now() - 1000 * 60 * 60 * 48,
+            lastLinkAccessAt: Date.now() - 1000 * 60 * 60 * 3,
+            dailyAccessCount: 1,
+            dailyDeclarationsCount: 0,
+            totalDeclarationsCount: 0,
+          },
+          {
+            uid: "lead-002",
+            email: "marcelo.sneakers@gmail.com",
+            displayName: "Marcelo D.",
+            photoURL: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150",
+            role: "vip",
+            createdAt: Date.now() - 1000 * 60 * 60 * 120,
+            lastLinkAccessAt: Date.now() - 1000 * 60 * 20,
+            dailyAccessCount: 14,
+            dailyDeclarationsCount: 3,
+            totalDeclarationsCount: 18,
+          },
+          {
+            uid: "admin-uid-01",
+            email: "ph44608@gmail.com",
+            displayName: "Pedro Admin",
+            photoURL: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+            role: "admin",
+            createdAt: Date.now() - 1000 * 60 * 60 * 300,
+            lastLinkAccessAt: Date.now(),
+            dailyAccessCount: 99,
+            dailyDeclarationsCount: 2,
+            totalDeclarationsCount: 45,
+          },
+        ];
+        setUsersList(defaultUsers);
+        safeSetLocalStorage("yw_users_list", defaultUsers);
+      }
+    } catch (e) {
+      console.warn("yw_users_list parse error:", e);
     }
 
     // Real-time subscriptions for instant cloud sync across devices
     const unsubUsers = subscribeToUsers((cloudUsers) => {
-      if (cloudUsers && cloudUsers.length > 0) {
-        setUsersList(cloudUsers);
-        localStorage.setItem("yw_users_list", JSON.stringify(cloudUsers));
+      if (cloudUsers && Array.isArray(cloudUsers) && cloudUsers.length > 0) {
+        const sanitized = cloudUsers.map((u) => ({
+          ...u,
+          uid: u.uid || `user-${Math.random()}`,
+          email: u.email || "",
+          displayName: u.displayName || u.email || "Usuário",
+          role: u.role || "free",
+        }));
+        setUsersList(sanitized);
+        safeSetLocalStorage("yw_users_list", sanitized);
       }
     });
 
     const unsubBanners = subscribeToBanners((cloudBanners) => {
-      if (cloudBanners && cloudBanners.length > 0) {
+      if (cloudBanners && Array.isArray(cloudBanners) && cloudBanners.length > 0) {
         setBanners(cloudBanners);
-        localStorage.setItem("yw_banners", JSON.stringify(cloudBanners));
+        safeSetLocalStorage("yw_banners", cloudBanners);
       }
     });
 
     const unsubProducts = subscribeToProducts((cloudProducts) => {
-      if (cloudProducts && cloudProducts.length > 0) {
-        setProducts(cloudProducts);
-        localStorage.setItem("yw_products", JSON.stringify(cloudProducts));
+      if (cloudProducts && Array.isArray(cloudProducts) && cloudProducts.length > 0) {
+        const sanitized = cloudProducts.map((p) => ({
+          ...p,
+          title: p.title || "Produto sem título",
+          category: p.category || "Camisetas",
+          priceCny: Number(p.priceCny) || 0,
+          images: Array.isArray(p.images) && p.images.length > 0
+            ? p.images
+            : ["https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800"],
+          targetUrl: p.targetUrl || "https://weidian.com",
+        }));
+        setProducts(sanitized);
+        safeSetLocalStorage("yw_products", sanitized);
       }
     });
-
-    const savedUsers = localStorage.getItem("yw_users_list");
-    if (savedUsers) {
-      try {
-        setUsersList(JSON.parse(savedUsers));
-      } catch (e) {
-        console.error(e);
-      }
-    } else {
-      const defaultUsers: UserProfile[] = [
-        {
-          uid: "lead-001",
-          email: "joao.importador@gmail.com",
-          displayName: "João Silva",
-          photoURL: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
-          role: "free",
-          createdAt: Date.now() - 1000 * 60 * 60 * 48,
-          lastLinkAccessAt: Date.now() - 1000 * 60 * 60 * 3,
-          dailyAccessCount: 1,
-          dailyDeclarationsCount: 0,
-          totalDeclarationsCount: 0,
-        },
-        {
-          uid: "lead-002",
-          email: "marcelo.sneakers@gmail.com",
-          displayName: "Marcelo D.",
-          photoURL: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150",
-          role: "vip",
-          createdAt: Date.now() - 1000 * 60 * 60 * 120,
-          lastLinkAccessAt: Date.now() - 1000 * 60 * 20,
-          dailyAccessCount: 14,
-          dailyDeclarationsCount: 3,
-          totalDeclarationsCount: 18,
-        },
-        {
-          uid: "admin-uid-01",
-          email: "ph44608@gmail.com",
-          displayName: "Pedro Admin",
-          photoURL: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
-          role: "admin",
-          createdAt: Date.now() - 1000 * 60 * 60 * 300,
-          lastLinkAccessAt: Date.now(),
-          dailyAccessCount: 99,
-          dailyDeclarationsCount: 2,
-          totalDeclarationsCount: 45,
-        },
-      ];
-      setUsersList(defaultUsers);
-      localStorage.setItem("yw_users_list", JSON.stringify(defaultUsers));
-    }
 
     return () => {
       if (unsubUsers) unsubUsers();
@@ -500,6 +537,24 @@ export default function AdminPage() {
             <span>Login com Conta Google</span>
           </button>
 
+          <button
+            onClick={() => {
+              try {
+                localStorage.removeItem("yw_users_list");
+                localStorage.removeItem("yw_products");
+                localStorage.removeItem("yw_banners");
+                localStorage.removeItem("yw_popup");
+                localStorage.removeItem("yw_mock_user");
+              } catch (e) {}
+              window.location.reload();
+            }}
+            className="flex items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-xs font-medium text-zinc-400 hover:text-amber-300 hover:border-amber-500/30 transition"
+            title="Limpar dados salvos localmente"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span>Limpar Cache</span>
+          </button>
+
           <Link
             href="/"
             className="flex items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950 py-3 px-4 text-xs font-medium text-zinc-400 hover:text-white transition"
@@ -541,6 +596,23 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-3 text-xs">
+            <button
+              onClick={() => {
+                try {
+                  localStorage.removeItem("yw_users_list");
+                  localStorage.removeItem("yw_products");
+                  localStorage.removeItem("yw_banners");
+                  localStorage.removeItem("yw_popup");
+                  localStorage.removeItem("yw_mock_user");
+                } catch (e) {}
+                window.location.reload();
+              }}
+              className="hidden sm:flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 px-2.5 py-1 text-[11px] text-zinc-400 hover:text-amber-300 hover:border-amber-500/30 transition"
+              title="Limpar dados do navegador e recarregar da nuvem"
+            >
+              <Trash2 className="h-3 w-3" />
+              <span>Limpar Cache Local</span>
+            </button>
             <span className="text-zinc-400 hidden sm:inline">Logado como:</span>
             <span className="font-semibold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-md border border-amber-500/20">
               {user?.email || "ph44608@gmail.com"}
@@ -656,86 +728,95 @@ export default function AdminPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60">
-                    {products
-                      .filter((p) =>
-                        p.title.toLowerCase().includes(productSearch.toLowerCase()) ||
-                        p.category.toLowerCase().includes(productSearch.toLowerCase())
-                      )
-                      .map((p) => (
-                        <tr key={p.id} className="hover:bg-zinc-900/40 transition">
-                          <td className="p-4">
-                            <div className="flex items-center gap-3">
-                              <img
-                                src={p.images[0]}
-                                alt=""
-                                className="h-12 w-12 rounded-lg object-cover bg-zinc-900 border border-zinc-800 shrink-0"
-                              />
-                              <div>
-                                <span className="font-semibold text-zinc-100 block max-w-xs truncate">
-                                  {p.title}
-                                </span>
-                                <span className="text-[10px] text-zinc-500">ID: {p.id}</span>
+                    {(Array.isArray(products) ? products : [])
+                      .filter((p) => {
+                        if (!p) return false;
+                        const title = (p.title || "").toLowerCase();
+                        const cat = (p.category || "").toLowerCase();
+                        const q = (productSearch || "").toLowerCase();
+                        return title.includes(q) || cat.includes(q);
+                      })
+                      .map((p) => {
+                        const mainImage = Array.isArray(p.images) && p.images[0]
+                          ? p.images[0]
+                          : "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800";
+                        const price = Number(p.priceCny) || 0;
+                        return (
+                          <tr key={p.id || `prod-${Math.random()}`} className="hover:bg-zinc-900/40 transition">
+                            <td className="p-4">
+                              <div className="flex items-center gap-3">
+                                <img
+                                  src={mainImage}
+                                  alt=""
+                                  className="h-12 w-12 rounded-lg object-cover bg-zinc-900 border border-zinc-800 shrink-0"
+                                />
+                                <div>
+                                  <span className="font-semibold text-zinc-100 block max-w-xs truncate">
+                                    {p.title || "Produto sem título"}
+                                  </span>
+                                  <span className="text-[10px] text-zinc-500">ID: {p.id}</span>
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            <span className="font-bold text-amber-400">¥ {p.priceCny}</span>
-                            <span className="text-[10px] text-zinc-500 block">
-                              ~R$ {Math.round(p.priceCny * 0.82)}
-                            </span>
-                          </td>
-                          <td className="p-4">
-                            <span className="rounded-md bg-zinc-800/80 px-2 py-0.5 text-[11px] text-zinc-300">
-                              {p.category}
-                            </span>
-                          </td>
-                          <td className="p-4">
-                            <a
-                              href={p.targetUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-zinc-400 hover:text-amber-400 max-w-[180px] truncate"
-                              title={p.targetUrl}
-                            >
-                              <span className="truncate">{p.targetUrl}</span>
-                              <ExternalLink className="h-3 w-3 shrink-0" />
-                            </a>
-                          </td>
-                          <td className="p-4">
-                            <button
-                              onClick={() => handleToggleProductStatus(p.id)}
-                              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider transition ${
-                                p.active !== false
-                                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                                  : "bg-rose-500/10 text-rose-400 border border-rose-500/30"
-                              }`}
-                            >
-                              {p.active !== false ? "Ativo" : "Oculto"}
-                            </button>
-                          </td>
-                          <td className="p-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => {
-                                  setEditingProduct(p);
-                                  setIsProductModalOpen(true);
-                                }}
-                                className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white transition"
-                                title="Editar"
+                            </td>
+                            <td className="p-4">
+                              <span className="font-bold text-amber-400">¥ {price}</span>
+                              <span className="text-[10px] text-zinc-500 block">
+                                ~R$ {Math.round(price * 0.82)}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <span className="rounded-md bg-zinc-800/80 px-2 py-0.5 text-[11px] text-zinc-300">
+                                {p.category || "Camisetas"}
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <a
+                                href={p.targetUrl || "#"}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-zinc-400 hover:text-amber-400 max-w-[180px] truncate"
+                                title={p.targetUrl || ""}
                               >
-                                <Edit3 className="h-4 w-4" />
-                              </button>
+                                <span className="truncate">{p.targetUrl || "Link não informado"}</span>
+                                <ExternalLink className="h-3 w-3 shrink-0" />
+                              </a>
+                            </td>
+                            <td className="p-4">
                               <button
-                                onClick={() => handleDeleteProduct(p.id)}
-                                className="rounded-lg p-2 text-zinc-500 hover:bg-rose-500/10 hover:text-rose-400 transition"
-                                title="Excluir"
+                                onClick={() => handleToggleProductStatus(p.id)}
+                                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider transition ${
+                                  p.active !== false
+                                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                                    : "bg-rose-500/10 text-rose-400 border border-rose-500/30"
+                                }`}
                               >
-                                <Trash2 className="h-4 w-4" />
+                                {p.active !== false ? "Ativo" : "Oculto"}
                               </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="p-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => {
+                                    setEditingProduct(p);
+                                    setIsProductModalOpen(true);
+                                  }}
+                                  className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white transition"
+                                  title="Editar"
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteProduct(p.id)}
+                                  className="rounded-lg p-2 text-zinc-500 hover:bg-rose-500/10 hover:text-rose-400 transition"
+                                  title="Excluir"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -783,22 +864,36 @@ export default function AdminPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/60">
-                    {usersList
-                      .filter(
-                        (u) =>
-                          u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
-                          u.displayName?.toLowerCase().includes(userSearch.toLowerCase())
-                      )
+                    {(Array.isArray(usersList) ? usersList : [])
+                      .filter((u) => {
+                        if (!u) return false;
+                        const email = (u.email || "").toLowerCase();
+                        const name = (u.displayName || "").toLowerCase();
+                        const q = (userSearch || "").toLowerCase();
+                        return email.includes(q) || name.includes(q);
+                      })
                       .map((u) => {
+                        if (!u) return null;
                         const isVipUser = u.role === "vip" || u.role === "admin";
-                        const hasRecentAccess =
-                          u.lastLinkAccessAt && Date.now() - u.lastLinkAccessAt < 24 * 60 * 60 * 1000;
+                        
+                        let lastAccessMs: number | null = null;
+                        if (typeof u.lastLinkAccessAt === "number") {
+                          lastAccessMs = u.lastLinkAccessAt;
+                        } else if (u.lastLinkAccessAt && typeof (u.lastLinkAccessAt as any).toMillis === "function") {
+                          lastAccessMs = (u.lastLinkAccessAt as any).toMillis();
+                        } else if (u.lastLinkAccessAt && typeof (u.lastLinkAccessAt as any).seconds === "number") {
+                          lastAccessMs = (u.lastLinkAccessAt as any).seconds * 1000;
+                        }
+
+                        const hasRecentAccess = Boolean(lastAccessMs && Date.now() - lastAccessMs < 24 * 60 * 60 * 1000);
                         const todayStr = new Date().toISOString().split("T")[0];
                         const declarationsToday = u.lastDeclarationDate === todayStr ? (u.dailyDeclarationsCount || 0) : 0;
                         const totalDeclarations = u.totalDeclarationsCount || declarationsToday;
+                        const initialLetter = (u.displayName && u.displayName[0]) 
+                          || (u.email && u.email[0] ? u.email[0].toUpperCase() : "U");
 
                         return (
-                          <tr key={u.uid} className="hover:bg-zinc-900/40 transition">
+                          <tr key={u.uid || `user-${Math.random()}`} className="hover:bg-zinc-900/40 transition">
                             <td className="p-4">
                               <div className="flex items-center gap-3">
                                 {u.photoURL ? (
@@ -809,14 +904,14 @@ export default function AdminPage() {
                                   />
                                 ) : (
                                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 text-zinc-300 font-bold">
-                                    {u.displayName?.[0] || u.email[0].toUpperCase()}
+                                    {initialLetter}
                                   </div>
                                 )}
                                 <div>
                                   <span className="font-semibold text-zinc-100 block">
-                                    {u.displayName || "Usuário"}
+                                    {u.displayName || u.email || "Usuário"}
                                   </span>
-                                  <span className="text-[11px] text-zinc-400">{u.email}</span>
+                                  <span className="text-[11px] text-zinc-400">{u.email || "Sem e-mail"}</span>
                                 </div>
                               </div>
                             </td>
@@ -856,9 +951,9 @@ export default function AdminPage() {
                             </td>
 
                             <td className="p-4 text-zinc-400">
-                              {u.lastLinkAccessAt ? (
+                              {lastAccessMs ? (
                                 <span>
-                                  {new Date(u.lastLinkAccessAt).toLocaleString("pt-BR", {
+                                  {new Date(lastAccessMs).toLocaleString("pt-BR", {
                                     day: "2-digit",
                                     month: "2-digit",
                                     hour: "2-digit",
@@ -956,39 +1051,43 @@ export default function AdminPage() {
             </div>
 
             <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-              {banners.map((b) => (
-                <div
-                  key={b.id}
-                  className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 p-4 flex flex-col justify-between"
-                >
-                  <div className="aspect-[16/7] w-full rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 relative mb-3">
-                    <img src={b.imageUrl} alt="" className="h-full w-full object-cover" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                    <div className="absolute bottom-3 left-3 right-3">
-                      <span className="text-[10px] text-amber-400 uppercase font-bold tracking-wider">
-                        Slide #{b.order}
+              {(Array.isArray(banners) ? banners : []).map((b) => {
+                if (!b) return null;
+                const bannerImg = b.imageUrl || "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=1600";
+                return (
+                  <div
+                    key={b.id || `ban-${Math.random()}`}
+                    className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 p-4 flex flex-col justify-between"
+                  >
+                    <div className="aspect-[16/7] w-full rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 relative mb-3">
+                      <img src={bannerImg} alt="" className="h-full w-full object-cover" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                      <div className="absolute bottom-3 left-3 right-3">
+                        <span className="text-[10px] text-amber-400 uppercase font-bold tracking-wider">
+                          Slide #{b.order || 1}
+                        </span>
+                        <h4 className="text-sm font-black text-white uppercase">{b.title || "Banner"}</h4>
+                        {b.subtitle && (
+                          <p className="text-xs text-zinc-300 line-clamp-1">{b.subtitle}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80 text-xs">
+                      <span className="text-zinc-400 truncate max-w-[220px]">
+                        Destino: <strong>{b.targetUrl || "Nenhum"}</strong>
                       </span>
-                      <h4 className="text-sm font-black text-white uppercase">{b.title}</h4>
-                      {b.subtitle && (
-                        <p className="text-xs text-zinc-300 line-clamp-1">{b.subtitle}</p>
-                      )}
+                      <button
+                        onClick={() => handleDeleteBanner(b.id)}
+                        className="text-zinc-500 hover:text-rose-400 p-1 transition"
+                        title="Excluir Banner"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
-
-                  <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80 text-xs">
-                    <span className="text-zinc-400 truncate max-w-[220px]">
-                      Destino: <strong>{b.targetUrl || "Nenhum"}</strong>
-                    </span>
-                    <button
-                      onClick={() => handleDeleteBanner(b.id)}
-                      className="text-zinc-500 hover:text-rose-400 p-1 transition"
-                      title="Excluir Banner"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
@@ -1010,7 +1109,7 @@ export default function AdminPage() {
                   <input
                     type="text"
                     name="title"
-                    defaultValue={popupConfig.title}
+                    defaultValue={popupConfig?.title || ""}
                     required
                     className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-zinc-100 focus:border-amber-500/60 focus:outline-none"
                   />
@@ -1021,7 +1120,7 @@ export default function AdminPage() {
                   <textarea
                     name="description"
                     rows={3}
-                    defaultValue={popupConfig.description}
+                    defaultValue={popupConfig?.description || ""}
                     required
                     className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-zinc-100 focus:border-amber-500/60 focus:outline-none"
                   />
@@ -1030,14 +1129,14 @@ export default function AdminPage() {
                 <div>
                   <ImageUploader
                     label="Imagem de Destaque do Pop-up (Upload ou URL)"
-                    currentImage={uploadedPopupImage || popupConfig.imageUrl || ""}
+                    currentImage={uploadedPopupImage || popupConfig?.imageUrl || ""}
                     onImageChange={(url) => setUploadedPopupImage(url)}
                     aspectRatio="banner"
                   />
                   <input
                     type="hidden"
                     name="imageUrl"
-                    value={uploadedPopupImage || popupConfig.imageUrl || ""}
+                    value={uploadedPopupImage || popupConfig?.imageUrl || ""}
                   />
                 </div>
 
@@ -1047,7 +1146,7 @@ export default function AdminPage() {
                     <input
                       type="text"
                       name="ctaText"
-                      defaultValue={popupConfig.ctaText}
+                      defaultValue={popupConfig?.ctaText || ""}
                       required
                       className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-zinc-100 focus:border-amber-500/60 focus:outline-none"
                     />
@@ -1060,7 +1159,7 @@ export default function AdminPage() {
                       name="delaySeconds"
                       min={1}
                       max={120}
-                      defaultValue={popupConfig.delaySeconds}
+                      defaultValue={popupConfig?.delaySeconds || 10}
                       required
                       className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-zinc-100 focus:border-amber-500/60 focus:outline-none"
                     />
@@ -1072,7 +1171,7 @@ export default function AdminPage() {
                   <input
                     type="text"
                     name="ctaUrl"
-                    defaultValue={popupConfig.ctaUrl}
+                    defaultValue={popupConfig?.ctaUrl || ""}
                     placeholder="#vip ou https://..."
                     required
                     className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-zinc-100 focus:border-amber-500/60 focus:outline-none"
@@ -1084,7 +1183,7 @@ export default function AdminPage() {
                     type="checkbox"
                     name="active"
                     id="activePopup"
-                    defaultChecked={popupConfig.active}
+                    defaultChecked={popupConfig?.active ?? true}
                     className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-amber-500 focus:ring-amber-500"
                   />
                   <label htmlFor="activePopup" className="text-zinc-200 font-medium">
@@ -1187,7 +1286,7 @@ export default function AdminPage() {
               <div>
                 <ImageUploader
                   label="Foto Principal do Produto (Upload direto do PC ou URL)"
-                  currentImage={uploadedProductImage || editingProduct?.images[0] || ""}
+                  currentImage={uploadedProductImage || (Array.isArray(editingProduct?.images) && editingProduct.images[0]) || ""}
                   onImageChange={(url) => setUploadedProductImage(url)}
                   aspectRatio="square"
                 />
@@ -1200,7 +1299,7 @@ export default function AdminPage() {
                 <textarea
                   name="images"
                   rows={2}
-                  defaultValue={editingProduct?.images.join("\n") || ""}
+                  defaultValue={Array.isArray(editingProduct?.images) ? editingProduct.images.join("\n") : ""}
                   placeholder="https://images.unsplash.com/photo-..."
                   className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-2.5 text-zinc-100 focus:border-amber-500/60 focus:outline-none font-mono text-[11px]"
                 />
@@ -1223,7 +1322,7 @@ export default function AdminPage() {
                   <input
                     type="text"
                     name="tags"
-                    defaultValue={editingProduct?.tags?.join(", ") || ""}
+                    defaultValue={Array.isArray(editingProduct?.tags) ? editingProduct.tags.join(", ") : ""}
                     placeholder="Oversized, 400 GSM"
                     className="w-full rounded-lg border border-zinc-800 bg-zinc-900 p-2 text-zinc-100"
                   />

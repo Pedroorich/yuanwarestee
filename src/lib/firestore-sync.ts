@@ -1,4 +1,4 @@
-﻿import { 
+import { 
   doc, 
   getDoc, 
   setDoc, 
@@ -169,7 +169,16 @@ export async function getUsersFromFirestore(): Promise<UserProfile[] | null> {
     if (!snap.empty) {
       const users: UserProfile[] = [];
       snap.forEach((docSnap) => {
-        users.push(docSnap.data() as UserProfile);
+        const data = docSnap.data() as UserProfile;
+        if (data) {
+          users.push({
+            ...data,
+            uid: data.uid || docSnap.id,
+            email: data.email || "",
+            displayName: data.displayName || data.email || "Usuário",
+            role: data.role || "free",
+          });
+        }
       });
       return users;
     }
@@ -189,7 +198,16 @@ export function subscribeToUsers(onUpdate: (users: UserProfile[]) => void): Unsu
       if (!snap.empty) {
         const users: UserProfile[] = [];
         snap.forEach((docSnap) => {
-          users.push(docSnap.data() as UserProfile);
+          const data = docSnap.data() as UserProfile;
+          if (data) {
+            users.push({
+              ...data,
+              uid: data.uid || docSnap.id,
+              email: data.email || "",
+              displayName: data.displayName || data.email || "Usuário",
+              role: data.role || "free",
+            });
+          }
         });
         onUpdate(users);
       }
@@ -201,3 +219,4 @@ export function subscribeToUsers(onUpdate: (users: UserProfile[]) => void): Unsu
     return null;
   }
 }
+

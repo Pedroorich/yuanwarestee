@@ -82,61 +82,71 @@ export default function Home() {
   // Load custom admin-saved products & settings from localStorage and Firestore
   useEffect(() => {
     // 1. Initial instant load from localStorage
-    const savedProducts = localStorage.getItem("yw_products");
-    if (savedProducts) {
-      try {
-        setProducts(JSON.parse(savedProducts));
-      } catch (e) {
-        console.error(e);
+    try {
+      const savedProducts = localStorage.getItem("yw_products");
+      if (savedProducts) {
+        const parsed = JSON.parse(savedProducts);
+        if (Array.isArray(parsed) && parsed.length > 0) setProducts(parsed);
       }
+    } catch (e) {
+      console.warn("yw_products parse error:", e);
     }
 
-    const savedBanners = localStorage.getItem("yw_banners");
-    if (savedBanners) {
-      try {
-        setBanners(JSON.parse(savedBanners));
-      } catch (e) {
-        console.error(e);
+    try {
+      const savedBanners = localStorage.getItem("yw_banners");
+      if (savedBanners) {
+        const parsed = JSON.parse(savedBanners);
+        if (Array.isArray(parsed) && parsed.length > 0) setBanners(parsed);
       }
+    } catch (e) {
+      console.warn("yw_banners parse error:", e);
     }
 
-    const savedPopup = localStorage.getItem("yw_popup");
-    if (savedPopup) {
-      try {
-        setPopupConfig(JSON.parse(savedPopup));
-      } catch (e) {
-        console.error(e);
+    try {
+      const savedPopup = localStorage.getItem("yw_popup");
+      if (savedPopup) {
+        const parsed = JSON.parse(savedPopup);
+        if (parsed && typeof parsed === "object") setPopupConfig(parsed);
       }
+    } catch (e) {
+      console.warn("yw_popup parse error:", e);
     }
 
-    const savedCart = localStorage.getItem("yw_declaration_cart");
-    if (savedCart) {
-      try {
-        setDeclarationItems(JSON.parse(savedCart));
-      } catch (e) {
-        console.error(e);
+    try {
+      const savedCart = localStorage.getItem("yw_declaration_cart");
+      if (savedCart) {
+        const parsed = JSON.parse(savedCart);
+        if (Array.isArray(parsed)) setDeclarationItems(parsed);
       }
+    } catch (e) {
+      console.warn("yw_declaration_cart parse error:", e);
     }
 
     // 2. Real-time subscriptions to cloud banners and products (instant live sync)
     const unsubBanners = subscribeToBanners((cloudBanners) => {
-      if (cloudBanners && cloudBanners.length > 0) {
+      if (cloudBanners && Array.isArray(cloudBanners) && cloudBanners.length > 0) {
         setBanners(cloudBanners);
-        localStorage.setItem("yw_banners", JSON.stringify(cloudBanners));
+        try {
+          localStorage.setItem("yw_banners", JSON.stringify(cloudBanners));
+        } catch (e) {}
       }
     });
 
     const unsubProducts = subscribeToProducts((cloudProducts) => {
-      if (cloudProducts && cloudProducts.length > 0) {
+      if (cloudProducts && Array.isArray(cloudProducts) && cloudProducts.length > 0) {
         setProducts(cloudProducts);
-        localStorage.setItem("yw_products", JSON.stringify(cloudProducts));
+        try {
+          localStorage.setItem("yw_products", JSON.stringify(cloudProducts));
+        } catch (e) {}
       }
     });
 
     getPopupFromFirestore().then((cloudPopup) => {
       if (cloudPopup) {
         setPopupConfig(cloudPopup);
-        localStorage.setItem("yw_popup", JSON.stringify(cloudPopup));
+        try {
+          localStorage.setItem("yw_popup", JSON.stringify(cloudPopup));
+        } catch (e) {}
       }
     }).catch(() => {});
 
@@ -149,7 +159,9 @@ export default function Home() {
   // Save cart changes
   const updateCart = (newItems: DeclarationCartItem[]) => {
     setDeclarationItems(newItems);
-    localStorage.setItem("yw_declaration_cart", JSON.stringify(newItems));
+    try {
+      localStorage.setItem("yw_declaration_cart", JSON.stringify(newItems));
+    } catch (e) {}
   };
 
   const showToast = (msg: string) => {
@@ -159,16 +171,18 @@ export default function Home() {
 
   // Filter products
   const filteredProducts = useMemo(() => {
-    return products
-      .filter((p) => p.active !== false)
+    return (Array.isArray(products) ? products : [])
+      .filter((p) => p && p.active !== false)
       .filter((p) => {
+        const cat = (p.category || "").toLowerCase();
         const matchesCategory =
-          selectedCategory === "Todos" || p.category.toLowerCase() === selectedCategory.toLowerCase();
+          selectedCategory === "Todos" || cat === selectedCategory.toLowerCase();
+        const q = (searchQuery || "").toLowerCase().trim();
         const matchesSearch =
-          !searchQuery.trim() ||
-          p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.tags?.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+          !q ||
+          (p.title || "").toLowerCase().includes(q) ||
+          cat.includes(q) ||
+          (Array.isArray(p.tags) && p.tags.some((t) => (t || "").toLowerCase().includes(q)));
         return matchesCategory && matchesSearch;
       });
   }, [products, selectedCategory, searchQuery]);
